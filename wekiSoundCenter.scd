@@ -25,6 +25,19 @@ SynthDef.new(\simplePlayerMono, {|bufNum, loop = 0, trig = 1, rate = 1, pos = 0,
 	Out.ar(outbus, sig);
 }).send(s);
 
+SynthDef.new(\pitchPlayerMono, {|bufNum, loop = 0, trig = 1, rate = 1, pos = 0, amp = 0, outbus = 0|
+
+	var sig;
+
+	sig = PlayBuf.ar(1, bufNum, rate: rate, startPos: pos * BufFrames.kr(bufNum), loop: loop);
+	sig = PitchShift.ar(sig, windowSize: 0.2, pitchRatio: 1/rate, timeDispersion: 0.01);
+
+	sig = Pan2.ar(sig , 0) * amp;
+	sig = sig * EnvGen.kr(Env.asr(0.01,1,0.2),trig,doneAction:2);
+	Out.ar(outbus, sig);
+}).send(s);
+
+
 SynthDef.new(\simplePlayerStereo, {|bufNum, amp = 0, loop = 0, trig = 1, rate = 1, pos = 0, outbus=0|
 
 	var sig;
@@ -180,10 +193,19 @@ startMetronomeFunc = {
 							if(currentSample[player] == count){amp = 0.5};
 
 							loopSynths[player][count].set(\trig,0);
-							loopSynths[player][count] = Synth.new(\simplePlayerMono, [
-								\bufNum, selSamples[player][count],
-								\loop, 1, \rate, selRates[player][count], \pos, 0, \amp, amp
-							]);
+
+							if(player == 0, {
+								loopSynths[player][count] = Synth.new(\simplePlayerMono, [
+									\bufNum, selSamples[player][count],
+									\loop, 1, \rate, selRates[player][count], \pos, 0, \amp, amp
+								]);
+							},{
+								loopSynths[player][count] = Synth.new(\pitchPlayerMono, [
+									\bufNum, selSamples[player][count],
+									\loop, 1, \rate, selRates[player][count], \pos, 0, \amp, amp
+								]);
+
+							});
 						};
 						nil;
 					});
@@ -347,7 +369,7 @@ startMetronomeFunc.value();
 	playSample[player] = ActionButton(fv[player],"play Sample",{
 
 		if(~sampleArray[player].size() > 0, {
-			x = Synth.new(\simplePlayerMono, [\bufNum, ~sampleArray[player][currentSample[player]]]);
+			x = Synth.new(\pitchPlayerMono, [\bufNum, ~sampleArray[player][currentSample[player]]]);
 		});
 	},minWidth: 100, minHeight: 40);
 
