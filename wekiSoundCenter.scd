@@ -89,9 +89,9 @@ selSamplesFunc,  selRateFunc, startMetronomeFunc;
 
 
 //beats variables
-var avPhraseLength = 4, numPhrases = 5,
+var avPhraseLength = 4, numPhrases = [8,5],
 loopSynths = Array.newClear(2),
-metronome, currBeat, tempoSlide, port, rateMod = 1, numTrigs = [0,0], newPhrase = [0,0], phraseThresh = 2;
+metronome, currBeat, tempoSlide, port, rateMod = 1, numTrigs = [0,0], newPhrase = [0,0], phraseThresh = 0;
 
 
 loopSynths.size().do{|count| loopSynths[count] = Array.newClear(8)};
@@ -250,13 +250,13 @@ selSamplesFunc = {|player|
 	};
 
 	selSamplesList[player].items = Array.new();
-	if(~sampleArray[player].size() >= numPhrases){
+	if(~sampleArray[player].size() >= numPhrases[player]){
 
 		selSamples[player] = Array.new();
-		selRates[player] = Array.newClear(numPhrases);
+		selRates[player] = Array.newClear(numPhrases[player]);
 
 
-		numPhrases.do{
+		numPhrases[player].do{
 
 
 			isValid = false;
@@ -294,7 +294,7 @@ selSamplesFunc = {|player|
 
 selRateFunc = {|player|
 
-	numPhrases.do{|count|
+	numPhrases[player].do{|count|
 		var rate;
 
 		rate = selSamples[player][count].numFrames/avPhraseLength * rateMod;
@@ -375,7 +375,7 @@ startMetronomeFunc.value();
 
 
 
-	numPhrases.do{|count|
+	numPhrases[player].do{|count|
 
 		var lbl = "play " ++ (count + 1);
 
@@ -383,7 +383,7 @@ startMetronomeFunc.value();
 			var pos;
 			currentSample[player] = count;
 			if(selSamples[player].size() > 0){
-				numPhrases.do{|ct|
+				numPhrases[player].do{|ct|
 					if(ct != count,{loopSynths[player][ct].set(\amp, 0)});
 				};
 				loopSynths[player][count].set(\amp, 0.5);
@@ -437,13 +437,23 @@ w.onClose = {
 
 OSCdef(\param, {|msg|
 
-	var index = msg[1],
-	sIndex = floor(min(numPhrases, max(0, msg[2] * (numPhrases + 1))));
+
+
+	var index = msg[1], sIndex;
+	msg.postln;
+
+	if(index == 0, {
+		sIndex = msg[2];
+		},
+		{
+			sIndex = floor(min(numPhrases[index], max(0, msg[2] * (numPhrases[index] + 1))))
+		}
+	);
 
 
 	if(index < 2){
 
-		if(currentSample[index] != sIndex, {
+		//if(currentSample[index] != sIndex, {
 
 			//msg.postln;
 			sIndex.postln;
@@ -462,7 +472,7 @@ OSCdef(\param, {|msg|
 				if(sIndex == 0,
 
 					{
-						numPhrases.do{|ct|
+						numPhrases[index].do{|ct|
 							loopSynths[index][ct].set(\amp, 0);
 						};
 
@@ -473,7 +483,7 @@ OSCdef(\param, {|msg|
 					}, {
 
 						if(selSamples[index].size() > 0){
-							numPhrases.do{|ct|
+							numPhrases[index].do{|ct|
 								if(ct != (sIndex - 1),{loopSynths[index][ct].set(\amp, 0)});
 							};
 							loopSynths[index][sIndex - 1].set(\amp, 0.5);
@@ -485,7 +495,7 @@ OSCdef(\param, {|msg|
 
 			};
 
-		});
+		//});
 
 	};
 
