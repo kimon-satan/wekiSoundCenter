@@ -15,7 +15,7 @@ SynthDef.new(\master, {|inbus, outbus, amp = 1|
 
 }).send(s);
 
-SynthDef.new(\simplePlayerMono, {|bufNum, loop = 0, trig = 1, rate = 1, pos = 0, amp = 0, outbus = 0|
+SynthDef.new(\simplePlayerMono, {|bufNum, loop = 0, trig = 1, rate = 1, pos = 0, amp = 1, outbus = 0, gate = 0|
 
 	var sig;
 
@@ -25,7 +25,23 @@ SynthDef.new(\simplePlayerMono, {|bufNum, loop = 0, trig = 1, rate = 1, pos = 0,
 	Out.ar(outbus, sig);
 }).send(s);
 
-SynthDef.new(\pitchPlayerMono, {|bufNum, loop = 0, trig = 1, rate = 1, pos = 0, amp = 0, outbus = 0|
+SynthDef.new(\filterPlayerMono, {|bufNum, loop = 0, trig = 1, rate = 1, pos = 0, amp = 2, outbus = 0, ff = 4000, rq = 1, gate = 0, pr = 1|
+
+	var sig;
+
+	ff = Lag.kr(ff);
+	rq = Lag.kr(rq);
+	pr = Lag.kr(pr);
+
+	sig = PlayBuf.ar(1, bufNum, rate: rate, startPos: pos * BufFrames.kr(bufNum), loop: loop);
+	sig = RLPF.ar(sig, ff, rq);
+	sig = PitchShift.ar(sig, windowSize: 0.2, pitchRatio: pr, timeDispersion: 0.01);
+	sig = Pan2.ar(sig , 0) * amp * gate;
+	sig = sig * EnvGen.kr(Env.asr(0.01,1,0.2),trig,doneAction:2);
+	Out.ar(outbus, sig);
+}).send(s);
+
+SynthDef.new(\pitchPlayerMono, {|bufNum, loop = 0, trig = 1, rate = 1, pos = 0, amp = 1, outbus = 0, gate = 0|
 
 	var sig;
 
@@ -89,12 +105,11 @@ selSamplesFunc,  selRateFunc, startMetronomeFunc;
 
 
 //beats variables
-var avPhraseLength = 4, numPhrases = [8,5],
-loopSynths = Array.newClear(2),
+var avPhraseLength = 4, numPhrases = [4,5],
 metronome, currBeat, tempoSlide, port, rateMod = 1, numTrigs = [0,0], newPhrase = [0,0], phraseThresh = 0;
 
-
-loopSynths.size().do{|count| loopSynths[count] = Array.newClear(8)};
+~loopSynths = Array.newClear(2);
+~loopSynths.size().do{|count| ~loopSynths[count] = Array.newClear(8)};
 
 port = NetAddr.new("192.168.0.1", 8000);    // create the NetAddr
 
@@ -120,7 +135,7 @@ mc = FlowView.new(w, Rect(0,700,640,100));
 loadSample = {|player|
 	Dialog.openPanel({ arg path;
 
-		loopSynths[player].do{|item|
+		~loopSynths[player].do{|item|
 			item.set(\trig, 0);
 		};
 
@@ -178,7 +193,7 @@ startMetronomeFunc = {
 			currBeat = (currBeat + 1)%16;
 			("beat" ++ currBeat).postln;
 			if(isMet == true, {x = {SinOsc.ar(1000,0, EnvGen.kr(Env.perc(0.01,0.05), doneAction:2)) * 0.1}.play});
-			port.sendMsg("/beat", currBeat);
+			//port.sendMsg("/beat", currBeat);
 
 			if(currBeat == 0){
 
@@ -188,22 +203,24 @@ startMetronomeFunc = {
 					~tempoClock.schedAbs(0, {
 
 						selSamples[player].size().do{|count|
-							var amp = 0;
+							var gate = 0;
 
-							if(currentSample[player] == count){amp = 0.5};
+							if(currentSample[player] == count){
+								if(count > 0){gate = 1.0};
+							};
 
-							loopSynths[player][count].set(\trig,0);
+							~loopSynths[player][count].set(\trig,0);
 
 							if(player == 0, {
-								loopSynths[player][count] = Synth.new(\simplePlayerMono, [
+								~loopSynths[player][count] = Synth.new(\filterPlayerMono, [
 									\bufNum, selSamples[player][count],
-									\loop, 1, \rate, selRates[player][count], \pos, 0, \amp, amp
+									\loop, 1, \rate, selRates[player][count], \pos, 0, \gate, gate
 								]);
-							},{
-								loopSynths[player][count] = Synth.new(\pitchPlayerMono, [
-									\bufNum, selSamples[player][count],
-									\loop, 1, \rate, selRates[player][count], \pos, 0, \amp, amp
-								]);
+								},{
+									~loopSynths[player][count] = Synth.new(\pitchPlayerMono, [
+										\bufNum, selSamples[player][count],
+										\loop, 1, \rate, selRates[player][count], \pos, 0, \gate, gate
+									]);
 
 							});
 						};
@@ -245,8 +262,8 @@ selSamplesFunc = {|player|
 
 	var sel, isValid, indexes;
 
-	loopSynths[player].size().do{|count|
-		loopSynths[player][count].set(\trig, 0);
+	~loopSynths[player].size().do{|count|
+		~loopSynths[player][count].set(\trig, 0);
 	};
 
 	selSamplesList[player].items = Array.new();
@@ -297,7 +314,8 @@ selRateFunc = {|player|
 	numPhrases[player].do{|count|
 		var rate;
 
-		rate = selSamples[player][count].numFrames/avPhraseLength * rateMod;
+		rate = selSamples[player][count].numFrames/(44100/~tempoClock.tempo * 8);
+
 		if(rate > 1.3,{
 			rate = rate/2;
 		});
@@ -352,8 +370,8 @@ startMetronomeFunc.value();
 
 	clearAll = ActionButton(fv[player],"clear all samples",{
 
-		loopSynths[player].size().do{|count|
-			loopSynths[player][count].set(\trig, 0);
+		~loopSynths[player].size().do{|count|
+			~loopSynths[player][count].set(\trig, 0);
 		};
 
 		//metronome.stop;
@@ -384,9 +402,9 @@ startMetronomeFunc.value();
 			currentSample[player] = count;
 			if(selSamples[player].size() > 0){
 				numPhrases[player].do{|ct|
-					if(ct != count,{loopSynths[player][ct].set(\amp, 0)});
+					if(ct != count,{~loopSynths[player][ct].set(\gate, 0)});
 				};
-				loopSynths[player][count].set(\amp, 0.5);
+				~loopSynths[player][count].set(\gate, 1.0);
 			}
 		}, minWidth: 50, minHeight: 30);
 
@@ -405,7 +423,7 @@ tempoSlide = Slider(mc, Rect(20, 100, 100, 20))
 	2.do{|player|
 		selRateFunc.value(player);
 		selRates[player].size().do{|count|
-			loopSynths[player][count].set(\rate, selRates[player][count]);
+			~loopSynths[player][count].set(\rate, selRates[player][count]);
 		};
 	};
 
@@ -422,8 +440,8 @@ w.onClose = {
 			~sampleArray[player][c].free;
 		};
 
-		loopSynths[player].size().do{|count|
-			loopSynths[player][count].set(\trig,0);
+		~loopSynths[player].size().do{|count|
+			~loopSynths[player][count].set(\trig,0);
 		};
 
 	};
@@ -437,16 +455,32 @@ w.onClose = {
 
 OSCdef(\param, {|msg|
 
-
-
 	var index = msg[1], sIndex;
-	msg.postln;
+
 
 	if(index == 0, {
+
+		var lpf;
+
 		sIndex = msg[2];
+		if(sIndex > 0,  {
+			var ff = ControlSpec(200,2000).map(msg[3]);
+			var rq = ControlSpec(0.1,1).map(msg[4]);
+			var pitch = ControlSpec(0.5,1.5).map(msg[5]);
+
+			if(selSamples[index].size() > 0 ,{
+				numPhrases[index].do{|ct|~loopSynths[index][ct].set(\ff, ff, \rq, rq, \pr, pitch)};
+
+			});
+		});
+
 		},
 		{
-			sIndex = floor(min(numPhrases[index], max(0, msg[2] * (numPhrases[index] + 1))))
+
+			sIndex = floor(min(numPhrases[index],
+				max(0, msg[1] * (numPhrases[index] + 1))));
+
+
 		}
 	);
 
@@ -455,45 +489,45 @@ OSCdef(\param, {|msg|
 
 		//if(currentSample[index] != sIndex, {
 
-			//msg.postln;
-			sIndex.postln;
-			if(sIndex == newPhrase[index],{
-				numTrigs[index] = numTrigs[index] + 1;
-				numTrigs[index].postln;
-				},{
+		//msg.postln;
+
+		if(sIndex == newPhrase[index],{
+			numTrigs[index] = numTrigs[index] + 1;
+			//numTrigs[index].postln;
+			},{
 				newPhrase[index] = sIndex;
-			});
+		});
 
 
-			if(numTrigs[index] > phraseThresh){
+		if(numTrigs[index] > phraseThresh){
 
-				currentSample[index] = sIndex;
+			currentSample[index] = sIndex;
 
-				if(sIndex == 0,
+			if(sIndex == 0,
 
-					{
+				{
+					numPhrases[index].do{|ct|
+						~loopSynths[index][ct].set(\gate, 0);
+					};
+
+					//uncomment for changing samples with weki
+					//AppClock.sched(0,selSamplesFunc);
+					//
+
+				}, {
+
+					if(selSamples[index].size() > 0){
 						numPhrases[index].do{|ct|
-							loopSynths[index][ct].set(\amp, 0);
+							if(ct != (sIndex - 1),{~loopSynths[index][ct].set(\gate, 0)});
 						};
-
-						//uncomment for changing samples with weki
-						//AppClock.sched(0,selSamplesFunc);
-						//
-
-					}, {
-
-						if(selSamples[index].size() > 0){
-							numPhrases[index].do{|ct|
-								if(ct != (sIndex - 1),{loopSynths[index][ct].set(\amp, 0)});
-							};
-							loopSynths[index][sIndex - 1].set(\amp, 0.5);
-						}
-
+						~loopSynths[index][sIndex - 1].set(\gate, 1);
 					}
 
-				);
+				}
 
-			};
+			);
+
+		};
 
 		//});
 
@@ -501,6 +535,35 @@ OSCdef(\param, {|msg|
 
 
 }, '/OSCSynth/params');
+
+~lbeat = 0;
+
+OSCdef(\beat).clear;
+OSCdef(\beat, {|msg, time|
+
+	var diff, fac = 1;
+	diff = time - ~lbeat;
+	~lbeat = time;
+
+	if(~tempoClock.timeToNextBeat < 0.95   ,{
+		if( ~tempoClock.timeToNextBeat > 0.05){
+			 fac = max(~tempoClock.timeToNextBeat, 0.8);
+
+
+
+	}});
+
+	~tempoClock.tempo = (1.0/diff) * fac;
+
+	2.do{|ct|
+		if(selSamples[ct].size() > 0){
+			selRateFunc.value(ct);
+		};
+	}
+
+
+
+}, '/beat');
 
 )
 
